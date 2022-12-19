@@ -1,4 +1,4 @@
-# MysqlToXuguSyncer
+# MysqlAndOracleToXuguSyncer
 
 启动参数 mysql 
 ```shell
