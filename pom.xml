@@ -91,7 +91,9 @@
         <dependency>
             <groupId>com.xugu</groupId>
             <artifactId>xugu-jdbc</artifactId>
-            <version>${xugu-jdbc.version}</version>
+            <version>12.1.0</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/src/main/resources/lib/xugu-jdbc-12.1.0.jar</systemPath>
         </dependency>
         <dependency>
             <groupId>mysql</groupId>

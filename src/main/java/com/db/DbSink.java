@@ -15,9 +15,16 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.Date;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 public class DbSink extends RichSinkFunction<String> {
+
+    private static Logger logger = Logger.getLogger(SynToDbApplication.class.getName());
     static String driver = "com.xugu.cloudjdbc.Driver";
 
     static String mysqldriver = "com.mysql.jdbc.Driver";
@@ -31,7 +38,13 @@ public class DbSink extends RichSinkFunction<String> {
     private PreparedStatement ps;
     private Connection connection;
 
-    //AtomicInteger num = new AtomicInteger(0);
+    static AtomicInteger updatenum = new AtomicInteger(0);
+
+    static AtomicInteger insertnum = new AtomicInteger(0);
+
+    static AtomicInteger deletenum = new AtomicInteger(0);
+
+    static ScheduledExecutorService executor = null;
 
     Map<String, TableInfo> tableNameAndColumn = new ConcurrentHashMap<>(1000);
 
@@ -40,32 +53,39 @@ public class DbSink extends RichSinkFunction<String> {
 
     Map<String,String> updateSqlMap = new ConcurrentHashMap<>(1000);
 
-    /*static {
-       *//* try {
-            Class.forName("com.xugu.cloudjdbc.Driver");
-        } catch (ClassNotFoundException e) {
-            throw new RuntimeException(e);
-        }*//*
+    static {
+//       try {
+//            Class.forName("com.xugu.cloudjdbc.Driver");
+//        } catch (ClassNotFoundException e) {
+//            throw new RuntimeException(e);
+//        }
         //dataSource = new HikariDataSource();
         //dataSource = new DruidDataSource();
         //dataSource.setDriverClassName("com.xugu.cloudjdbc.Driver");
-       *//* dataSource.setTestOnBorrow(true);
-        dataSource.setTestWhileIdle(false);
-        dataSource.setValidationQuery("select 1");
-        dataSource.setInitialSize(50);
-        dataSource.setMaxActive(600);
-        dataSource.setMaxWait(6000);
-        dataSource.setMinIdle(100);*//*
-        super.open(parameters);
-        connection = getConnection();
+//        dataSource.setTestOnBorrow(true);
+//        dataSource.setTestWhileIdle(false);
+//        dataSource.setValidationQuery("select 1");
+//        dataSource.setInitialSize(50);
+//        dataSource.setMaxActive(600);
+//        dataSource.setMaxWait(6000);
+//        dataSource.setMinIdle(100);
+//        super.open(parameters);
+//        connection = getConnection();
+        executor = Executors.newScheduledThreadPool(10);
+        executor.scheduleAtFixedRate(new Runnable() {
+            public void run() {
+                System.out.println("real insert num: "+(insertnum.get()));
+            }
+        }, 0, 1, TimeUnit.MINUTES);
 
-    }*/
+
+    }
     public DbSink(Map<String,String> map) {
         String sinkHostname = map.get("sink_hostname");
         String sinkPort = map.get("sink_port");
         String sinkDatabase = map.get("sink_database");
-        this.sinkUrl = "jdbc:mysql://"+sinkHostname+":"+sinkPort+"/"+sinkDatabase+"?useUnicode=true&characterEncoding=UTF-8&serverTimeZone=UTC";
-        //this.sinkUrl = "jdbc:xugu://"+sinkHostname+":"+sinkPort+"/"+sinkDatabase;
+        //this.sinkUrl = "jdbc:mysql://"+sinkHostname+":"+sinkPort+"/"+sinkDatabase+"?useUnicode=true&characterEncoding=UTF-8&serverTimeZone=UTC";
+        this.sinkUrl = "jdbc:xugu://"+sinkHostname+":"+sinkPort+"/"+sinkDatabase;
         this.sinkUsername = map.get("sink_username");
         this.sinkPassword = map.get("sink_password");
        // dataSource.setJdbcUrl("jdbc:xugu://"+sinkHostname+":"+sinkPort+"/"+sinkDatabase);
@@ -85,8 +105,8 @@ public class DbSink extends RichSinkFunction<String> {
         super.open(parameters);
         connection = getConnection();
         ps = connection.prepareStatement("select 1 from dual");
-        getMysqlTableInfo();
-        //getTableInfo();
+        //getMysqlTableInfo();
+        getTableInfo();
         initSql();
         //System.out.println("num: "+num.incrementAndGet());
     }
@@ -122,9 +142,7 @@ public class DbSink extends RichSinkFunction<String> {
                 switch (op) {
                     case "c":
                     case "r":
-                        if (sql == null) {
-                            break;
-                        }
+                        logger.info("i: "+insertnum.get());
                         for (int i = 0; i < size; i++) {
                             String column = columns.get(i).get(0);
                             String type = columns.get(i).get(1);
@@ -135,12 +153,16 @@ public class DbSink extends RichSinkFunction<String> {
                             obj = getFieldData2Pre(obj, type);
                             ps.setObject(i + 1, obj);
                         }
-                        //ps.addBatch();
-                        //num.getAndIncrement();
-                        //if (num.get()%500==0) {
-                        //    ps.executeBatch();
-                        //}
-                        ps.execute();
+                        try{
+                            int result0 = ps.executeUpdate();
+                            if(result0==1){
+                                insertnum.incrementAndGet();
+                            }else{
+                                logger.warning("insert result="+result0);
+                            }
+                        }catch (Exception e){
+                            e.printStackTrace();
+                        }
                         //ps.close();
                         break;
                     case "u":
@@ -148,7 +170,7 @@ public class DbSink extends RichSinkFunction<String> {
                         if (sql == null) {
                             break;
                         }
-                        System.out.println("u :" + sql);
+                        logger.info("u :" + sql);
                         ps = connection.prepareStatement(sql);
                         for (int i = 0; i < size; i++) {
                             String column = columns.get(i).get(0);
@@ -168,7 +190,12 @@ public class DbSink extends RichSinkFunction<String> {
                             }
                             ps.setObject(i + 1 + size, obj);
                         }
-                        ps.executeUpdate();
+                        int result = ps.executeUpdate();
+                        if(result<=0){
+                            logger.warning("update rows<=0");
+                        }else{
+                            updatenum.addAndGet(result);
+                        }
                         //ps.close();
                         break;
                     case "d":
@@ -176,17 +203,24 @@ public class DbSink extends RichSinkFunction<String> {
                         if (sql == null) {
                             break;
                         }
-                        System.out.println("d :" + sql);
+                        logger.info("d :" + sql);
                         ps = connection.prepareStatement(sql);
                         for (int i = 0; i < size; i++) {
                             String column = columns.get(i).get(0);
+                            String type = columns.get(i).get(1);
                             Object obj = before.get(column.toUpperCase());
                             if (obj == null) {
                                 obj = before.get(column.toLowerCase());
                             }
+                            obj = getFieldData2Pre(obj, type);
                             ps.setObject(i + 1, obj);
                         }
-                        ps.executeUpdate();
+                        int result2 = ps.executeUpdate();
+                        if(result2<=0){
+                            logger.warning("delete rows<=0");
+                        }else{
+                            deletenum.addAndGet(result2);
+                        }
                         //ps.close();
                         break;
                 }
@@ -586,13 +620,13 @@ public class DbSink extends RichSinkFunction<String> {
     private Connection getConnection() {
         Connection con = null;
         try {
-            //Class.forName(driver);
-            Class.forName(mysqldriver);
+            Class.forName(driver);
+            //Class.forName(mysqldriver);
             con =
                     DriverManager.getConnection(
                             this.sinkUrl, this.sinkUsername, this.sinkPassword);
         } catch (Exception e) {
-            System.out.println("-----------mysql get connection has exception , msg = " + e.getMessage());
+            logger.warning("-----------mysql get connection has exception , msg = " + e.getMessage());
         }
         return con;
     }

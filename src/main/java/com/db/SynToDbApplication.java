@@ -42,16 +42,13 @@ public class SynToDbApplication {
                 }
             }
             StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-            env.setParallelism(3);
             //2.Flink-CDC 将读取 binlog 的位置信息以状态的方式保存在 CK,如果想要做到断点续传,需要从 Checkpoint 或者 Savepoint 启动程序
             //2.1 开启 Checkpoint,每隔 5 秒钟做一次 CK
-            env.enableCheckpointing(1000L);
-            //2.2 指定 CK 的一致性语义
-            env.getCheckpointConfig().setCheckpointingMode(CheckpointingMode.EXACTLY_ONCE);
+            env.enableCheckpointing(3000);
             //2.3 设置任务关闭的时候保留最后一次 CK 数据
-            env.getCheckpointConfig().enableExternalizedCheckpoints(CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
+            //env.getCheckpointConfig().enableExternalizedCheckpoints(CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
             //2.4 指定从 CK 自动重启策略
-            env.setRestartStrategy(RestartStrategies.fixedDelayRestart(3, 2000L));
+            //env.setRestartStrategy(RestartStrategies.fixedDelayRestart(3, 2000L));
             DataStreamSource<String> sourceDs = null;
             type = properties.getProperty("type");
             if(type.equals("mysql")){
@@ -201,12 +198,12 @@ public class SynToDbApplication {
         }
         Properties deb = new Properties();
      /*   deb.setProperty("log.mining.strategy", "online_catalog");
-        deb.setProperty("log.mining.continuous.mine", "true");
-        deb.setProperty("execution.checkpointing.interval", "10min");
+        deb.setProperty("log.mining.continuous.mine", "true"); */
+     /*   deb.setProperty("execution.checkpointing.interval", "10min");
         deb.setProperty("execution.checkpointing.tolerable-failed-checkpoints", "100");
         deb.setProperty("restart-strategy", "fixed-delay");
-        deb.setProperty("restart-strategy.fixed-delay.attempts", "2147483647");
-        deb.setProperty("database.tablename.case.insensitive", "false");*/
+        deb.setProperty("restart-strategy.fixed-delay.attempts", "2147483647");*/
+        deb.setProperty("database.tablename.case.insensitive", "false");
         deb.setProperty("decimal.handling.mode","string");
 
         /*String columnExclude = properties.getProperty("column_exclude");
